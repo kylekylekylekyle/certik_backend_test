@@ -15,11 +15,19 @@ def create_tables():
 		"""
 		CREATE TABLE users(
 			username VARCHAR(255) NOT NULL,
-			password VARCHAR(255) NOT NULL,
 			balance INTEGER NOT NULL,
-			peers_id INTEGER [],
+			peers_id VARCHAR(255) [],
 		)
-		""")
+		""",
+		"""
+		CREATE TABLE messages(
+			sender_id VARCHAR(255) NOT NULL,
+			recipient_id VARCHAR(255) NOT NULL,
+			message VARCHAR(255) NOT NULL,
+			transaction_time TIMESTAMP DEFAULT Now(),
+		)
+		"""
+	)
 	conn = None
 	try:
 		params = config()
@@ -29,6 +37,39 @@ def create_tables():
 			cur.execute(command)
 		cur.close()
 		conn.commit()
+	except (Exception, psycopg2.DatabaseError) as error:
+		print(error)
+	finally:
+		if conn is not None:
+			conn.close()
+
+def read_messages(user):
+	conn = None
+	try:
+		params = config()
+		conn = psycopg2.connect(* * params)
+		cur = conn.cursor()
+		cur.execute("SELECT * FROM messages WHERE recipient_id = %s", (user))
+		rows = cur.fetchall()
+		cur.close()
+	except (Exception, psycopg2.DatabaseError) as error:
+		print(error)
+	finally:
+		if conn is not None:
+			conn.close()
+	return rows
+
+def send_message(user, recipient, message):
+	conn = None
+	sql = """INSERT INTO messages(sender_id, recipient_id, message)
+			VALUES(%s, %s, %s)"""
+	try:
+		params = config()
+		conn = psycopg2.connect(* * params)
+		cur = conn.cursor()
+		cur.execute(sql, (user, recipient, message))
+		conn.commit()
+		cur.close()
 	except (Exception, psycopg2.DatabaseError) as error:
 		print(error)
 	finally:
@@ -55,8 +96,11 @@ def insert_transaction(sender, recipient, val):
 
 def new_user(username, starting_bal):
 	""" setup a new user id and add this user's peers and receive user id"""
-	sql = """INSERT INTO users(username, balance, peers_id)
+	sql1 = """INSERT INTO users(username, balance, peers_id)
 			VALUES(%s, %d, %s)"""
+	sql0 = """SELECT username FROM users"""
+	sql2 = """INSERT INTO messages(sender_id, recipient_id, message) 
+	VALUES (%s, %s, %s)"""
 	conn = None
 	try:
 		params = config()
@@ -66,7 +110,14 @@ def new_user(username, starting_bal):
 		balance = starting_bal
 		peers_id = []
 
-		cur.execute(sql, (username, balance, peers_id))
+		cur.execute(sql0)
+		rows = cur.fetchall()
+
+		cur.execute(sql1, (username, balance, peers_id))
+		
+		for row in rows:
+			cur.execute(sql2, (username, row, "Will you be " + username + "'s peer? (Y/N)"))
+
 		conn.commit()
 		cur.close()
 	except (Exception, psycopg2.DatabaseError) as error:
@@ -196,6 +247,25 @@ def sender_check(user):
 			conn.close()
 	return exists
 
+def sender_check_m(user):
+	""" checks if user exists"""
+	conn = None
+	exists = 0;
+	try:
+		params = config()
+		conn = psycopg2.connect(* * params)
+		cur = conn.cursor()
+		cur.execute("SELECT sender_id FROM messages WHERE sender_id = %s", (user))
+		if cur is not None:
+			exists = 1
+		cur.close()
+	except (Exception, psycopg2.DatabaseError) as error:
+		print(error)
+	finally:
+		if conn is not None:
+			conn.close()
+	return exists
+
 def recipient_check(user):
 	""" checks if user exists"""
 	conn = None
@@ -224,6 +294,12 @@ def delete_user(user):
 	sql1 = """UPDATE transactions
 			SET recipient_id = %s
 			WHERE recipient_id = %s"""
+	sql2 = """UPDATE messages
+			SET sender_id = %s
+			WHERE sender_id_id = %s"""
+	sql3 = """UPDATE messages
+			SET recipient_id = %s
+			WHERE recipient_id = %s"""
 	conn = None
 	try:
 		params = config()
@@ -232,6 +308,8 @@ def delete_user(user):
 		cur.execute("DELETE FROM users WHERE username = %s", (user))
 		cur.execute(sql0, ("DELETED_ACCOUNT", user))
 		cur.execute(sql1, ("DELETED_ACCOUNT", user))
+		cur.execute(sql2, ("DELETED_ACCOUNT", user))
+		cur.execute(sql3, ("DELETED_ACCOUNT", user))
 		conn.commit()
 		cur.close()
 	except (Exception, psycopg2.DatabaseError) as error:
