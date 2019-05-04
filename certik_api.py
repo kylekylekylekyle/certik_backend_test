@@ -1,6 +1,6 @@
 from flask import Flask
 from flask_restful import Api, Resource, reqparse
-from test import insert_transaction, new_user, add_peers, update_balance, balance_check, num_users, user_check, sender_check, recipient_check, delete_user 
+from test import insert_transaction, new_user, add_peers, update_balance, balance_check, num_users, user_check, sender_check, recipient_check, delete_user, read_messages, send_message, sender_check_m
 import psycopg2
 from config import config
 
@@ -10,7 +10,7 @@ api = Api(app)
 
 
 class User(Resource):
-	def get(self, name):
+	def get_transactions(self, name):
 		#ask for every bit of info in transactions, if empty search don't query it
 		parser = reqparse.RequestParser()
 		parser.add_argument("sender")
@@ -50,9 +50,62 @@ class User(Resource):
 			if conn is not None:
 				conn.close()
 		return rows, 200
+	
+	def get_messages(self, name):
+		parser = reqparse.RequestParser()
+		parser.add_argument("sender")
+		args = parser.parse_args()
 
+		sql = "SELECT * FROM messages WHERE recipient_id = %s" % (name)
+		if not args["sender"]:
+			if (sender_check_m(args["sender"]) == 0):
+				return "Sender doesn't exist", 400
+			send_concat = "AND WHERE sender_id = %s" % (args["sender"])
+			num_concat = 1
+			sql = sql + send_concat
+		# CHANGE USER_CHECK TO A NEW FUNCTION THAT CHECKS FOR USER IN TRANSACTIONS
 
-	def post(self, name):
+		conn = None
+		try:
+			params = config()
+			conn = psycopg2.connect(* *params)
+			cur = conn.cursor()
+			cur.execute(sql)
+			rows = cur.fetchall()
+			cur.close()
+		except (Exception, psycopg2.DatabaseError) as error:
+			print(error)
+		finally:
+			if conn is not None:
+				conn.close()
+		return rows, 200
+
+	def set_peers(self, name):
+		sql = "SELECT sender_id FROM messages WHERE message = %s AND WHERE recipient_id = %s"
+		conn = None
+		try:
+			params = config()
+			conn = psycopg2.connect(* *params)
+			cur = conn.cursor()
+			cur.execute(sql, ("Y", name))
+			rows = cur.fetchall()
+			cur.close()
+		except (Exception, psycopg2.DatabaseError) as error:
+			print(error)
+		finally:
+			if conn is not None:
+				conn.close()
+		peer_count = 0
+		peer_list = []
+		for row in rows:
+			peer_list.append(row[0])
+			count = count + 1
+			if (count == 5):
+				break
+		add_peers(name, peer_list)
+		return 200
+
+	def post_user(self, name):
 		parser = reqparse.RequestParser()
 		parser.add_argument("balance")
 		args = parser.parse_args()
@@ -66,7 +119,7 @@ class User(Resource):
 		new_user(name, args["balance"])
 		return 201
 
-	def put(self, name):
+	def put_transactions(self, name):
 		parser = reqparse.RequestParser()
 		parser.add_argument("recipient")
 		parser.add_argument("amount")
@@ -96,6 +149,17 @@ class User(Resource):
 		update_balance(name, user_balance)
 		update_balance(args["recipient"], recipient_balance)
 		insert_transaction(name, args["recipient"], args["amount"])
+		return 200
+
+	def put_messages(self, name):
+		parser = reqparse.RequestParser()
+		parser.add_argument("recipient")
+		parser.add_argument("message")
+		args = parser.parse_args()
+
+		if (user_check(args["recipient"]) == 0):
+			return "The recipient doesn't exist", 400
+		send_message(user, args["recipient"], args["message"])
 		return 200
 
 	def delete(self, name):
